@@ -18,6 +18,7 @@ contract CarbonableMinterTest is Test {
     address constant USER_1_L1_ADDRESS = address(1001);
     uint256 constant USER_1_L2_ADDRESS = 2001;
     address constant UNKNOWN_USER = address(0);
+    address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
 
     /// FIELDS
     CarbonableMinter minterL1;
@@ -26,14 +27,13 @@ contract CarbonableMinterTest is Test {
     event L2MintTriggered(
         address indexed _sender,
         uint256 _l2RecipientAddress,
-        uint256 _projectAddress,
-        uint256 _slotID,
+        uint256 _l2ProjectAddress,
+        uint256 _value,
         uint256 _timestamp
     );
 
     function setUp() public {
         minterL1 = new CarbonableMinter(
-            L2_MINTER_CONTRACT,
             MINT_SELECTOR,
             STARKNET_MESSAGING_ADDRESS
         );
@@ -41,27 +41,22 @@ contract CarbonableMinterTest is Test {
     }
 
     function testConfigureL2ParametersCannotBeZero() public {
-        vm.expectRevert("CarbonableMinter: L2 parameters cannot be 0");
-        minterL1.configureL2Parameters(0, 1);
+        vm.expectRevert(CarbonableMinter.L2ParameterIsZero.selector);
+        minterL1.configureL2Parameters(0);
     }
 
     function testConfigureL2ParametersOnlyCallableByOwner() public {
         CarbonableMinter notConfiguredMinterL1 = new CarbonableMinter(
             0,
-            0,
             address(0)
         );
         vm.prank(UNKNOWN_USER);
         vm.expectRevert("Ownable: caller is not the owner");
-        notConfiguredMinterL1.configureL2Parameters(
-            L2_MINTER_CONTRACT,
-            MINT_SELECTOR
-        );
+        notConfiguredMinterL1.configureL2Parameters(MINT_SELECTOR);
     }
 
     function testMintToL2RequireL2ParametersToBeSet() public {
         CarbonableMinter notConfiguredMinterL1 = new CarbonableMinter(
-            0,
             0,
             address(0)
         );
@@ -69,16 +64,22 @@ contract CarbonableMinterTest is Test {
         notConfiguredMinterL1.mintOnL2(
             USER_1_L2_ADDRESS,
             PROJECT_L2_ADDRESS,
-            PROJECT_L2_SLOT_ID
+            42069000000,
+            42069000000 * 2
         );
     }
 
-    function testMintOnL2WhenMintIsOpen() public {
+    function testMintOnL2() public {
         // Call with user 1 L1 address
         vm.startPrank(USER_1_L1_ADDRESS);
 
         // Set timestamp to 1234
         uint256 currentTimestamp = 1234;
+        // Set value to 69420
+        uint256 value = 69420;
+        // Set amount
+        uint256 amount = value * 2;
+
         vm.warp(currentTimestamp);
 
         // Mock sendMessageToL2
@@ -87,37 +88,48 @@ contract CarbonableMinterTest is Test {
             abi.encodeWithSelector(IStarknetMessaging.sendMessageToL2.selector),
             abi.encode(bytes32(0))
         );
+        // Mock USDC allowance and transfer
+        vm.mockCall(
+            USDC,
+            abi.encodeWithSelector(IERC20.allowance.selector),
+            abi.encode(amount)
+        );
+        vm.mockCall(
+            USDC,
+            abi.encodeWithSelector(IERC20.transferFrom.selector),
+            abi.encode(1)
+        );
 
         // Check emitted event
-        vm.expectEmit(true, false, false, true);
+        vm.expectEmit(true, false, false, true, address(minterL1));
         emit L2MintTriggered(
             USER_1_L1_ADDRESS,
             USER_1_L2_ADDRESS,
             PROJECT_L2_ADDRESS,
-            PROJECT_L2_SLOT_ID,
+            value,
             currentTimestamp
         );
-        // Call registerToL2
         minterL1.mintOnL2(
             USER_1_L2_ADDRESS,
             PROJECT_L2_ADDRESS,
-            PROJECT_L2_SLOT_ID
+            value,
+            value * 2
         );
 
         vm.stopPrank();
     }
 
-    function testRegisterToL2WhenMintIsClosed() public {
-        // Call with user 1 L1 address
-        vm.startPrank(USER_1_L1_ADDRESS);
-        // Mock isRegistered and return false
-
-        // // Expect revert
-        // vm.expectRevert(
-        //     abi.encodeWithSignature("NotRegistered(address)", USER_1_L1_ADDRESS)
-        // );
-        // // Call registerToL2
-        // pohBridge.registerToL2(USER_1_L2_ADDRESS);
-        // vm.stopPrank();
+    function testWithdrawUSDC() public {
+        vm.mockCall(
+            USDC,
+            abi.encodeWithSelector(IERC20.transfer.selector),
+            abi.encode(1)
+        );
+        vm.mockCall(
+            USDC,
+            abi.encodeWithSelector(IERC20.balanceOf.selector),
+            abi.encode(911)
+        );
+        minterL1.withdrawUSDC();
     }
 }

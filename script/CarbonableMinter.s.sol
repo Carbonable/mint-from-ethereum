@@ -9,7 +9,7 @@ contract CarbonableMinterScript is Script {
 
     function run() public {
         vm.startBroadcast();
-        new CarbonableMinter(1, 1, address(1));
+        new CarbonableMinter(1, address(1));
         vm.stopBroadcast();
     }
 }
