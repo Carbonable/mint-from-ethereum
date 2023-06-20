@@ -71,9 +71,10 @@ contract CarbonableMinter is Context, Ownable {
         }
 
         // Send L2 Message
-        uint256[] memory payload = new uint256[](2);
+        uint256[] memory payload = new uint256[](3);
         payload[0] = l2RecipientAddress;
-        payload[1] = uint256(value);
+        payload[1] = value;
+        payload[2] = amount;
         _starknetMessaging.sendMessageToL2(
             l2ProjectAddress,
             _mintSelector,
