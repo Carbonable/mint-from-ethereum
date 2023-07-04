@@ -9,5 +9,6 @@ trait IERC3525<TContractState> {
     fn symbol(self: @TContractState) -> felt252;
 
     #[external]
+    // TODO: see if `to` could be of type ContractAddress
     fn mintNew(ref self: TContractState, to: felt252, slot: u256, value: u256) -> u256;
 }
