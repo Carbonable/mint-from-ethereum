@@ -1,4 +1,3 @@
-use core::traits::TryInto;
 #[starknet::contract]
 mod EthereumMinter {
     // Library Imports
@@ -10,29 +9,33 @@ mod EthereumMinter {
     use result::ResultTrait;
     use traits::{Into, TryInto};
 
-    use ethereum_minter::helpers::booking_storage::StorageAccessBooking;
-    use ethereum_minter::interfaces::l1_minter::IEthereumMinter;
+    // use ethereum_minter::helpers::booking_storage::StorageAccessBooking;
+    use ethereum_minter::helpers::status::mint_status_to_u8;
+    use ethereum_minter::helpers::status::u8_to_mint_status;
+    // use ethereum_minter::interfaces::l1_minter::IEthereumMinter;
     use ethereum_minter::interfaces::erc3525::{IERC3525Dispatcher, IERC3525DispatcherTrait};
 
-    #[derive(starknet::StorageAccess, Drop, Copy, Serde)]
+    #[derive(storage_access::StorageAccess, Drop, Copy)]
     struct Booking {
         value: u256,
         amount: u256,
         status: u8,
     }
 
-    #[derive(starknet::StorageAccess, Drop, Copy, Serde)]
+    #[derive(storage_access::StorageAccess, Drop)]
     enum MintStatus {
+        Booked: (),
         Failed: (),
         Minted: (),
+        Refunded: (),
     }
 
     #[storage]
     struct Storage {
         _l1_minter_address: felt252,
-        _l1_mint_counts: LegacyMap::<felt252, u32>,
+        _l1_mint_counts: LegacyMap::<ContractAddress, u32>,
         // booked_values: (user_address, user_mint_index) -> (value, amount, status)
-        _booked_values: LegacyMap::<(felt252, u32), u8>,
+        _booked_values: LegacyMap::<(ContractAddress, u32), Booking>,
         _projects_contract: IERC3525Dispatcher,
         _slot: u256,
         _unit_price: u256,
@@ -47,7 +50,8 @@ mod EthereumMinter {
     #[derive(Drop, starknet::Event)]
     enum Event {
         Upgraded: Upgraded,
-        Buy: Buy,
+        BookingClaimed: BookingClaimed,
+        BookingHandled: BookingHandled,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -56,12 +60,17 @@ mod EthereumMinter {
     }
 
     #[derive(Drop, starknet::Event)]
-    struct Buy {
+    struct BookingHandled {
         address: ContractAddress,
         value: u256,
-        time: u64,
+        time: u64
     }
 
+    #[derive(Drop, starknet::Event)]
+    struct BookingClaimed {
+        address: ContractAddress,
+        value: u256,
+    }
 
     // Methods
     #[constructor]
@@ -93,57 +102,47 @@ mod EthereumMinter {
         self._current_max_supply.write(max_supply);
     }
 
-
+    #[generate_trait]
     #[external(v0)]
-    impl CounterContract of IEthereumMinter<ContractState> {
+    impl EthereumMinter of IEthereumMinter {
         fn get_l1_minter_address(self: @ContractState) -> felt252 {
             self._l1_minter_address.read()
         }
 
-        //#[l1_handler]
-        fn mint_value(
-            ref self: ContractState,
-            from_address: felt252,
-            _user_address: u256,
-            value: u256,
-            amount: u256
-        ) {
-            assert(from_address == self._l1_minter_address.read(), 'Only L1 minter can mint value');
-            assert(_user_address != 0, 'User address cannot be zero');
-            let user_address = _user_address.try_into().unwrap();
-            let new_user_mint_id = self._l1_mint_counts.read(user_address) + 1_u32;
-            self._l1_mint_counts.write(user_address, new_user_mint_id);
-            let unit_price = self._unit_price.read();
-            let current_max_supply = self._current_max_supply.read();
-            let max_value_per_tx = self._max_value_per_tx.read();
-            let min_value_per_tx = self._min_value_per_tx.read();
-
-            //let mut status: MintStatus = MintStatus::Failed(());
-            let mut status = 0_u8;
-
-            if (value <= max_value_per_tx && value >= min_value_per_tx && amount == unit_price
-                * value && value <= current_max_supply) {
-                let projects_contract = self._projects_contract.read();
-                let slot = self._slot.read();
-
-                // [Interaction] Mint
-                let token_id = self._projects_contract.read().mintNew(user_address, slot, value);
-
-                // [Effect] Emit event
-                let time = get_block_timestamp();
-
-                let user_address: ContractAddress = user_address.try_into().unwrap();
-                self.emit(Event::Buy(Buy { address: user_address, value, time }));
-                // status = MintStatus::Minted(());
-                self._current_max_supply.write(current_max_supply - value);
-            }
-
-            let booking = Booking { value, amount, status };
-
-            self._booked_values.write((user_address, new_user_mint_id), booking.status);
+        fn sold_out(self: @ContractState) -> bool {
+            self._current_max_supply.read() < self._min_value_per_tx.read()
         }
 
-        fn claim(ref self: ContractState, user_address: felt252) {}
+        fn claim(ref self: ContractState, user_address: ContractAddress, id: u32) {
+            assert(self.sold_out(), 'Contract not sold out');
+
+            // [Check] Booking ok;
+            let mut booking = self._booked_values.read((user_address.into(), id));
+            assert(
+                booking.status == mint_status_to_u8(MintStatus::Booked(())), 'Booking not found'
+            );
+
+            let projects_contract = self._projects_contract.read();
+            let slot = self._slot.read();
+
+            // [Interaction] Mint
+            let token_id = self
+                ._projects_contract
+                .read()
+                .mintNew(user_address.into(), slot, booking.value);
+
+            // [Effect] Update Booking status
+            booking.status = mint_status_to_u8(MintStatus::Minted(()));
+            self._booked_values.write((user_address.into(), id), booking);
+
+            // [Effect] Emit event
+            self
+                .emit(
+                    Event::BookingClaimed(
+                        BookingClaimed { address: user_address, value: booking.value,  }
+                    )
+                );
+        }
 
         fn set_l1_minter_address(ref self: ContractState, l1_address: felt252) {
             assert(!l1_address.is_zero(), 'L1 address cannot be zero');
@@ -157,6 +156,48 @@ mod EthereumMinter {
             starknet::replace_class_syscall(impl_hash).unwrap_syscall();
             self.emit(Event::Upgraded(Upgraded { implementation: impl_hash }));
         }
+    }
+
+    #[l1_handler]
+    // TODO: Add L1 user address?
+    fn book_value_from_l1(
+        ref self: ContractState,
+        from_address: felt252,
+        user_address: ContractAddress,
+        value: u256, // TODO: u128 enough?
+        amount: u256, // TODO: u128 enough?
+        time: u64, // TODO: timestamp from L1?
+    ) {
+        // Can only be called by L1 minter
+        // This method shouldn't fail otherwise.
+        assert(from_address == self._l1_minter_address.read(), 'Only L1 minter can mint value');
+
+        // Get Booking Status
+        let new_user_mint_id = self._l1_mint_counts.read(user_address) + 1_u32;
+        self._l1_mint_counts.write(user_address, new_user_mint_id);
+        let unit_price = self._unit_price.read();
+        let current_max_supply = self._current_max_supply.read();
+        let max_value_per_tx = self._max_value_per_tx.read();
+        let min_value_per_tx = self._min_value_per_tx.read();
+
+        let mut status = MintStatus::Failed(());
+        if (value <= max_value_per_tx && value >= min_value_per_tx && amount == unit_price
+            * value && value <= current_max_supply) {
+            status = MintStatus::Booked(());
+            self._current_max_supply.write(current_max_supply - value);
+        }
+
+        let u8_status = mint_status_to_u8(status);
+
+        // Write booking
+        let booking = Booking { value, amount, status: u8_status };
+
+        self._booked_values.write((user_address, new_user_mint_id), booking);
+
+        // [Effect] Emit event
+        let time = get_block_timestamp();
+
+        self.emit(Event::BookingHandled(BookingHandled { address: user_address, value, time }));
     }
 }
 
@@ -181,6 +222,7 @@ mod tests {
     #[available_gas(30000000)]
     fn test_init() {
         let mut calldata = Default::default();
+
         // Projects contract
         calldata.append(1);
         // Slot
