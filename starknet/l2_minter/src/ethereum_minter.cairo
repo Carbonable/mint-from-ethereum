@@ -42,7 +42,7 @@ mod EthereumMinter {
         _max_supply: u256,
         _max_value_per_tx: u256,
         _min_value_per_tx: u256,
-        _current_max_supply: u256,
+        _remaining_supply: u256,
     }
 
     // Events
@@ -90,16 +90,19 @@ mod EthereumMinter {
         assert(min_value_per_tx > 0, 'Min value per tx <= 0');
         assert(max_value_per_tx >= min_value_per_tx, 'Max < min per tx');
         assert(max_supply >= max_value_per_tx, 'Max supply < max value per tx');
-
         assert(slot != 0, 'Slot cannot be zero');
 
-        self._projects_contract.write(IERC3525Dispatcher { contract_address: projects_contract });
+        let projects = IERC3525Dispatcher { contract_address: projects_contract };
+        let project_value = projects.getProjectValue(slot);
+        assert(max_supply <= project_value, 'Max supply > project value');
+
+        self._projects_contract.write(projects);
         self._slot.write(slot);
         self._unit_price.write(unit_price);
         self._max_supply.write(max_supply);
         self._max_value_per_tx.write(max_value_per_tx);
         self._min_value_per_tx.write(min_value_per_tx);
-        self._current_max_supply.write(max_supply);
+        self._remaining_supply.write(max_supply);
     }
 
     #[generate_trait]
@@ -110,7 +113,7 @@ mod EthereumMinter {
         }
 
         fn sold_out(self: @ContractState) -> bool {
-            self._current_max_supply.read() < self._min_value_per_tx.read()
+            self._remaining_supply.read() < self._min_value_per_tx.read()
         }
 
         fn claim(ref self: ContractState, user_address: ContractAddress, id: u32) {
@@ -125,15 +128,15 @@ mod EthereumMinter {
             let projects_contract = self._projects_contract.read();
             let slot = self._slot.read();
 
+            // [Effect] Update Booking status
+            booking.status = mint_status_to_u8(MintStatus::Minted(()));
+            self._booked_values.write((user_address.into(), id), booking);
+
             // [Interaction] Mint
             let token_id = self
                 ._projects_contract
                 .read()
                 .mintNew(user_address.into(), slot, booking.value);
-
-            // [Effect] Update Booking status
-            booking.status = mint_status_to_u8(MintStatus::Minted(()));
-            self._booked_values.write((user_address.into(), id), booking);
 
             // [Effect] Emit event
             self
@@ -176,15 +179,15 @@ mod EthereumMinter {
         let new_user_mint_id = self._l1_mint_counts.read(user_address) + 1_u32;
         self._l1_mint_counts.write(user_address, new_user_mint_id);
         let unit_price = self._unit_price.read();
-        let current_max_supply = self._current_max_supply.read();
+        let remaining_supply = self._remaining_supply.read();
         let max_value_per_tx = self._max_value_per_tx.read();
         let min_value_per_tx = self._min_value_per_tx.read();
 
         let mut status = MintStatus::Failed(());
         if (value <= max_value_per_tx && value >= min_value_per_tx && amount == unit_price
-            * value && value <= current_max_supply) {
+            * value && value <= remaining_supply) {
             status = MintStatus::Booked(());
-            self._current_max_supply.write(current_max_supply - value);
+            self._remaining_supply.write(remaining_supply - value);
         }
 
         let u8_status = mint_status_to_u8(status);
