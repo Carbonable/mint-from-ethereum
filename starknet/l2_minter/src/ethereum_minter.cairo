@@ -74,7 +74,7 @@ mod EthereumMinter {
 
     // Methods
     #[constructor]
-    fn init(
+    fn constructor(
         ref self: ContractState,
         projects_contract: ContractAddress,
         slot: u256,
@@ -163,7 +163,7 @@ mod EthereumMinter {
 
     #[l1_handler]
     // TODO: Add L1 user address?
-    fn book_value_from_l1(
+    fn book_value_from(
         ref self: ContractState,
         from_address: felt252,
         user_address: ContractAddress,
@@ -207,7 +207,7 @@ mod EthereumMinter {
 
 #[cfg(test)]
 mod tests {
-    use array::ArrayTrait;
+    use array::{ArrayTrait, Array};
     use core::result::ResultTrait;
     use core::traits::Into;
     use option::OptionTrait;
