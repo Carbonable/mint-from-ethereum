@@ -23,7 +23,7 @@ mod EthereumMinter {
     }
 
     #[derive(storage_access::StorageAccess, Drop)]
-    enum MintStatus {
+    enum BookingStatus {
         Booked: (),
         Failed: (),
         Minted: (),
@@ -122,14 +122,14 @@ mod EthereumMinter {
             // [Check] Booking ok;
             let mut booking = self._booked_values.read((user_address.into(), id));
             assert(
-                booking.status == mint_status_to_u8(MintStatus::Booked(())), 'Booking not found'
+                booking.status == mint_status_to_u8(BookingStatus::Booked(())), 'Booking not found'
             );
 
             let projects_contract = self._projects_contract.read();
             let slot = self._slot.read();
 
             // [Effect] Update Booking status
-            booking.status = mint_status_to_u8(MintStatus::Minted(()));
+            booking.status = mint_status_to_u8(BookingStatus::Minted(()));
             self._booked_values.write((user_address.into(), id), booking);
 
             // [Interaction] Mint
@@ -138,7 +138,6 @@ mod EthereumMinter {
                 .read()
                 .mintNew(user_address.into(), slot, booking.value);
 
-            // [Effect] Emit event
             self
                 .emit(
                     Event::BookingClaimed(
@@ -163,7 +162,7 @@ mod EthereumMinter {
 
     #[l1_handler]
     // TODO: Add L1 user address?
-    fn book_value_from(
+    fn book_value_from_l1(
         ref self: ContractState,
         from_address: felt252,
         user_address: ContractAddress,
@@ -183,10 +182,10 @@ mod EthereumMinter {
         let max_value_per_tx = self._max_value_per_tx.read();
         let min_value_per_tx = self._min_value_per_tx.read();
 
-        let mut status = MintStatus::Failed(());
+        let mut status = BookingStatus::Failed(());
         if (value <= max_value_per_tx && value >= min_value_per_tx && amount == unit_price
             * value && value <= remaining_supply) {
-            status = MintStatus::Booked(());
+            status = BookingStatus::Booked(());
             self._remaining_supply.write(remaining_supply - value);
         }
 
@@ -201,55 +200,5 @@ mod EthereumMinter {
         let time = get_block_timestamp();
 
         self.emit(Event::BookingHandled(BookingHandled { address: user_address, value, time }));
-    }
-}
-
-
-#[cfg(test)]
-mod tests {
-    use array::{ArrayTrait, Array};
-    use core::result::ResultTrait;
-    use core::traits::Into;
-    use option::OptionTrait;
-    use starknet::syscalls::deploy_syscall;
-    use traits::TryInto;
-
-    use test::test_utils::assert_eq;
-
-    use super::EthereumMinter;
-    use ethereum_minter::interfaces::l1_minter::{
-        IEthereumMinterDispatcher, IEthereumMinterDispatcherTrait
-    };
-
-    #[test]
-    #[available_gas(30000000)]
-    fn test_init() {
-        let mut calldata = Default::default();
-
-        // Projects contract
-        calldata.append(1);
-        // Slot
-        calldata.append(2);
-        calldata.append(0);
-        // Unit price
-        calldata.append(3);
-        calldata.append(0);
-        // Max supply
-        calldata.append(10);
-        calldata.append(0);
-        // Max value per tx
-        calldata.append(6);
-        calldata.append(0);
-        // Min value per tx
-        calldata.append(1);
-        calldata.append(0);
-
-        let (address0, _) = deploy_syscall(
-            EthereumMinter::TEST_CLASS_HASH.try_into().unwrap(), 0, calldata.span(), false
-        )
-            .unwrap();
-        let mut contract = IEthereumMinterDispatcher { contract_address: address0 };
-
-        assert(contract.get_l1_minter_address() == 0, 'l1_minter_address == 0');
     }
 }

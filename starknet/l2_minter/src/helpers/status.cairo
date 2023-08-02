@@ -1,25 +1,25 @@
-use ethereum_minter::ethereum_minter::EthereumMinter::MintStatus;
+use ethereum_minter::ethereum_minter::EthereumMinter::BookingStatus;
 use traits::Into;
 use option::OptionTrait;
 
-fn mint_status_to_u8(status: MintStatus) -> u8 {
+fn mint_status_to_u8(status: BookingStatus) -> u8 {
     match status {
-        MintStatus::Booked(()) => 0,
-        MintStatus::Failed(()) => 1,
-        MintStatus::Minted(()) => 2,
-        MintStatus::Refunded(()) => 3,
+        BookingStatus::Booked(()) => 0,
+        BookingStatus::Failed(()) => 1,
+        BookingStatus::Minted(()) => 2,
+        BookingStatus::Refunded(()) => 3,
     }
 }
 
-fn u8_to_mint_status(status: u8) -> Option<MintStatus> {
+fn u8_to_mint_status(status: u8) -> Option<BookingStatus> {
     if status == 0_u8 {
-        Option::Some(MintStatus::Booked(()))
+        Option::Some(BookingStatus::Booked(()))
     } else if status == 1_u8 {
-        Option::Some(MintStatus::Failed(()))
+        Option::Some(BookingStatus::Failed(()))
     } else if status == 2_u8 {
-        Option::Some(MintStatus::Minted(()))
+        Option::Some(BookingStatus::Minted(()))
     } else if status == 3_u8 {
-        Option::Some(MintStatus::Refunded(()))
+        Option::Some(BookingStatus::Refunded(()))
     } else {
         Option::None(())
     }
