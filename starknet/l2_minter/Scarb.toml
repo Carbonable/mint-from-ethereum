@@ -1,11 +1,15 @@
 [package]
 name = "ethereum_minter"
 version = "0.1.0"
-
-# See more keys and their definitions at https://docs.swmansion.com/scarb/docs/reference/manifest
-
-[dependencies]
-starknet = ">=2.0.0"
+authors = ["Tarik Kaced <tarik.kaced@proton.me>"]
 
 [[target.starknet-contract]]
-allowed-libfuncs = true
+sierra = true
+casm = true
+name = "compiled"
+
+[dependencies]
+starknet = ">=2.0.2"
+
+[cairo]
+sierra-replace-ids = true
