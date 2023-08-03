@@ -64,11 +64,11 @@ fn test_initialize() {
 
     // let x = array![1];
 
-    let (address0, _) = deploy_syscall(
+    let (address, _) = deploy_syscall(
         EthereumMinter::TEST_CLASS_HASH.try_into().unwrap(), 0, calldata.span(), false
     )
         .unwrap();
-    let mut contract = IEthereumMinterDispatcher { contract_address: address0 };
+    let mut contract = IEthereumMinterDispatcher { contract_address: address };
 
     assert(contract.get_l1_minter_address() == 0, 'l1_minter_address == 0');
 }
