@@ -62,8 +62,6 @@ fn test_initialize() {
     calldata.append(1);
     calldata.append(0);
 
-    // let x = array![1];
-
     let (address, _) = deploy_syscall(
         EthereumMinter::TEST_CLASS_HASH.try_into().unwrap(), 0, calldata.span(), false
     )
